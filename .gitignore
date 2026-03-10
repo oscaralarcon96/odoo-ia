@@ -1,0 +1,14 @@
+# Credenciales — NUNCA subir al repo
+.env
+
+# Entorno virtual
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Streamlit cache
+.streamlit/
+
+# macOS
+.DS_Store
