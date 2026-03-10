@@ -21,6 +21,20 @@ def _extract_name(field_value, fallback: str = "—") -> str:
     return fallback
 
 
+# Traducción de etapas inglés → español
+STAGE_TRANSLATIONS = {
+    "New": "Nuevo",
+    "Proposition": "Propuesta",
+    "Won": "Ganada",
+    "Qualified": "Calificada",
+    "Teleconference": "Telereunión",
+    "Lost": "Perdida",
+}
+
+def _translate_stage(name: str) -> str:
+    return STAGE_TRANSLATIONS.get(name, name)
+
+
 def _fmt_date(val) -> str:
     """Formatea un valor datetime de Odoo (string ISO) a YYYY-MM-DD."""
     if not val or val == "—":
@@ -50,7 +64,7 @@ def leads_to_dataframe(leads: list[dict]) -> pd.DataFrame:
                 "id": lead.get("id"),
                 "nombre": lead.get("name", "—"),
                 "cliente": lead.get("partner_name") or "—",
-                "etapa": _extract_name(lead.get("stage_id"), "Sin etapa"),
+                "etapa": _translate_stage(_extract_name(lead.get("stage_id"), "Sin etapa")),
                 "tipo": "Oportunidad" if lead.get("type") == "opportunity" else "Lead",
                 "vendedor": _extract_name(lead.get("user_id"), "Sin asignar"),
                 "email": lead.get("email_from") or "—",
