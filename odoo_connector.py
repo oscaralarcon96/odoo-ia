@@ -3,8 +3,8 @@ odoo_connector.py
 -----------------
 Fase 1: Conexión y Extracción vía XML-RPC.
 
-Provee funciones para autenticarse con una instancia Odoo Cloud
-y extraer registros del modelo crm.lead.
+Provee funciones para autenticarse con una instancia Odoo Cloud,
+extraer registros del modelo crm.lead y crear nuevas oportunidades.
 """
 
 import xmlrpc.client
@@ -38,19 +38,6 @@ CRM_FIELDS = [
 def authenticate(url: str, db: str, username: str, api_key: str) -> int:
     """
     Autentica contra Odoo usando XML-RPC y retorna el uid del usuario.
-
-    Args:
-        url:       URL base de la instancia (ej. https://mycompany.odoo.com)
-        db:        Nombre de la base de datos de Odoo
-        username:  Email / usuario de Odoo
-        api_key:   API Key generada en Odoo (Configuración → Claves de API)
-
-    Returns:
-        uid (int) si la autenticación es exitosa.
-
-    Raises:
-        ConnectionError: si no se puede conectar al servidor.
-        PermissionError: si las credenciales son incorrectas.
     """
     try:
         common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common")
@@ -80,32 +67,19 @@ def fetch_crm_leads(
 ) -> list[dict]:
     """
     Extrae registros de crm.lead desde Odoo.
-
-    Args:
-        url:    URL base de la instancia Odoo
-        db:     Nombre de la base de datos
-        uid:    UID del usuario autenticado
-        api_key: API Key del usuario
-        limit:  Número máximo de registros a extraer
-
-    Returns:
-        Lista de diccionarios con los datos de TODAS las oportunidades,
-        incluyendo etapas Ganado, Perdidas y SUSPENDIDO.
+    Solo trae oportunidades (type='opportunity'), incluyendo archivadas.
+    Ordenadas por actividad más reciente primero.
     """
     try:
         models = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object")
     except Exception as exc:
         raise ConnectionError(f"Error al conectar con el endpoint de modelos: {exc}") from exc
 
-    # Solo oportunidades. active_test:False permite traer también
-    # registros archivados (Perdidas, SUSPENDIDO, etc.)
     domain: list = [["type", "=", "opportunity"]]
 
     try:
         records = models.execute_kw(
-            db,
-            uid,
-            api_key,
+            db, uid, api_key,
             "crm.lead",
             "search_read",
             [domain],
@@ -113,7 +87,7 @@ def fetch_crm_leads(
                 "fields": CRM_FIELDS,
                 "limit": limit,
                 "order": "write_date desc",
-                "context": {"active_test": False},  # incluye archivados
+                "context": {"active_test": False},
             },
         )
     except Exception as exc:
@@ -135,12 +109,7 @@ def fetch_lead_messages(
 ) -> dict[int, list[dict]]:
     """
     Obtiene las últimas N conversaciones del chatter de Odoo
-    para cada oportunidad en `lead_ids`.
-
-    Hace UNA sola llamada XML-RPC (batch) para eficiencia.
-
-    Returns:
-        Dict {lead_id: [{‘author’, ‘date’, ‘body’}, ...]}
+    para cada oportunidad en `lead_ids`. Hace UNA sola llamada (batch).
     """
     if not lead_ids:
         return {}
@@ -160,28 +129,24 @@ def fetch_lead_messages(
             {
                 "fields": ["res_id", "author_id", "date", "body"],
                 "order": "date desc",
-                "limit": len(lead_ids) * messages_per_lead * 3,  # margen holgado
+                "limit": len(lead_ids) * messages_per_lead * 3,
             },
         )
     except Exception:
         return {}
 
-    # Agrupar por lead_id y quedarnos solo con los N más recientes
     result: dict[int, list[dict]] = {lid: [] for lid in lead_ids}
     for msg in messages:
         lid = msg["res_id"]
         if lid in result and len(result[lid]) < messages_per_lead:
-            # Limpiar HTML del body
             body = msg.get("body", "") or ""
             body = body.replace("<br>", " ").replace("<br/>", " ")
-            # Eliminar tags HTML de forma sencilla
             import re
-            body = re.sub(r"<[^>]+>", "", body).strip()
-            body = body[:300]  # truncar
+            body = re.sub(r"<[^>]+>", "", body).strip()[:300]
 
             author = msg.get("author_id")
             author_name = author[1] if isinstance(author, (list, tuple)) and len(author) > 1 else "Desconocido"
-            date_str = (msg.get("date") or "")[:10]  # solo fecha YYYY-MM-DD
+            date_str = (msg.get("date") or "")[:10]
 
             result[lid].append({
                 "autor": author_name,
@@ -190,6 +155,51 @@ def fetch_lead_messages(
             })
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Crear una nueva oportunidad en Odoo
+# ---------------------------------------------------------------------------
+def create_crm_opportunity(
+    url: str,
+    db: str,
+    uid: int,
+    api_key: str,
+    nombre: str,
+    empresa: str,
+    email: str,
+    servicio: str,
+) -> int:
+    """
+    Crea una nueva oportunidad en crm.lead y retorna su ID.
+
+    Args:
+        nombre:   Nombre del contacto
+        empresa:  Nombre de la empresa
+        email:    Correo electrónico del contacto
+        servicio: Descripción del servicio / notas internas
+
+    Returns:
+        ID del nuevo registro creado.
+    """
+    try:
+        models = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object")
+        new_id = models.execute_kw(
+            db, uid, api_key,
+            "crm.lead",
+            "create",
+            [{
+                "name": f"{nombre} - {servicio}",
+                "partner_name": empresa,
+                "contact_name": nombre,
+                "email_from": email,
+                "description": servicio,
+                "type": "opportunity",
+            }],
+        )
+        return new_id
+    except Exception as exc:
+        raise RuntimeError(f"Error al crear la oportunidad en Odoo: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------

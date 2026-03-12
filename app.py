@@ -11,9 +11,9 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
-from odoo_connector import authenticate, fetch_crm_leads, fetch_lead_messages
+from odoo_connector import authenticate, fetch_crm_leads, fetch_lead_messages, create_crm_opportunity
 from data_processor import leads_to_dataframe, leads_to_text_context, get_summary_stats, attach_messages
-from ai_agent import create_openai_client, query_ai, SAMPLE_QUESTIONS
+from ai_agent import create_openai_client, query_ai, SAMPLE_QUESTIONS, parse_action
 
 # ---------------------------------------------------------------------------
 # Configuración de página
@@ -535,10 +535,29 @@ else:
                     try:
                         reply = query_ai(
                             st.session_state.openai_client,
-                            st.session_state.messages[:-0] if False else st.session_state.messages,
+                            st.session_state.messages,
                             st.session_state.crm_context,
                         )
                         st.session_state.messages.append({"role": "assistant", "content": reply})
+                        # Detectar acción de creación
+                        action = parse_action(reply)
+                        if action and action.get("ACTION") == "CREATE_OPPORTUNITY":
+                            try:
+                                new_id = create_crm_opportunity(
+                                    odoo_url, odoo_db,
+                                    authenticate(odoo_url, odoo_db, odoo_username, odoo_api_key),
+                                    odoo_api_key,
+                                    nombre=action["nombre"],
+                                    empresa=action["empresa"],
+                                    email=action["email"],
+                                    servicio=action["servicio"],
+                                )
+                                st.session_state.messages.append({
+                                    "role": "assistant",
+                                    "content": f"✅ **Oportunidad creada exitosamente en Odoo** (ID: `{new_id}`).\n\n⚠️ Recarga los datos con el botón \"Conectar y cargar datos\" para verla en la tabla."
+                                })
+                            except Exception as ce:
+                                st.session_state.messages.append({"role": "assistant", "content": f"❌ Error al crear en Odoo: {ce}"})
                     except RuntimeError as e:
                         st.session_state.messages.append(
                             {"role": "assistant", "content": f"❌ Error: {e}"}
@@ -582,6 +601,27 @@ else:
                     )
                     st.markdown(reply)
                     st.session_state.messages.append({"role": "assistant", "content": reply})
+
+                    # Detectar acción de creación de oportunidad
+                    action = parse_action(reply)
+                    if action and action.get("ACTION") == "CREATE_OPPORTUNITY":
+                        try:
+                            uid_new = authenticate(odoo_url, odoo_db, odoo_username, odoo_api_key)
+                            new_id = create_crm_opportunity(
+                                odoo_url, odoo_db, uid_new, odoo_api_key,
+                                nombre=action["nombre"],
+                                empresa=action["empresa"],
+                                email=action["email"],
+                                servicio=action["servicio"],
+                            )
+                            ok_msg = f"✅ **Oportunidad creada exitosamente en Odoo** (ID: `{new_id}`).\nRecarga los datos con el botón \"Conectar y cargar datos\" para verla en la tabla."
+                            st.success(ok_msg)
+                            st.session_state.messages.append({"role": "assistant", "content": ok_msg})
+                        except Exception as ce:
+                            err = f"❌ No se pudo crear la oportunidad en Odoo: {ce}"
+                            st.error(err)
+                            st.session_state.messages.append({"role": "assistant", "content": err})
+
                 except RuntimeError as e:
                     err_msg = f"❌ Error al consultar la IA: {e}"
                     st.error(err_msg)
