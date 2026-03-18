@@ -50,7 +50,8 @@ def get_gmail_service(
                     "Descárgalo desde Google Cloud Console → APIs & Services → Credentials."
                 )
             flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
-            creds = flow.run_local_server(port=0)
+            print("Haz clic en el enlace que aparece abajo para autorizar la aplicación en Google.")
+            creds = flow.run_local_server(port=0, open_browser=False)
 
         with open(token_path, "w") as token_file:
             token_file.write(creds.to_json())
