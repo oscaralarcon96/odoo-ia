@@ -203,6 +203,60 @@ def create_crm_opportunity(
 
 
 # ---------------------------------------------------------------------------
+# Buscar duplicados antes de crear una oportunidad
+# ---------------------------------------------------------------------------
+def search_duplicate_leads(
+    url: str,
+    db: str,
+    uid: int,
+    api_key: str,
+    email: str = "",
+    empresa: str = "",
+) -> list[dict]:
+    """
+    Busca oportunidades/leads ya existentes que coincidan con el email
+    o el nombre de empresa proporcionados.
+
+    Returns:
+        Lista de dicts con id, name, partner_name, email_from, stage_id, write_date
+        de los posibles duplicados. Lista vacía si no hay coincidencias.
+    """
+    if not email and not empresa:
+        return []
+
+    try:
+        models = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object")
+
+        domain_conditions = []
+        if email:
+            domain_conditions.append(["email_from", "ilike", email])
+        if empresa:
+            domain_conditions.append(["partner_name", "ilike", empresa])
+
+        # OR entre las condiciones si hay más de una
+        if len(domain_conditions) == 1:
+            domain = [domain_conditions[0]]
+        else:
+            domain = ["|"] + domain_conditions
+
+        records = models.execute_kw(
+            db, uid, api_key,
+            "crm.lead",
+            "search_read",
+            [domain],
+            {
+                "fields": ["id", "name", "partner_name", "email_from", "stage_id", "write_date", "type"],
+                "limit": 10,
+                "order": "write_date desc",
+                "context": {"active_test": False},
+            },
+        )
+        return records
+    except Exception:
+        return []  # No interrumpir el flujo si la búsqueda falla
+
+
+# ---------------------------------------------------------------------------
 # Utilidad: Obtener etapas del pipeline
 # ---------------------------------------------------------------------------
 def fetch_pipeline_stages(url: str, db: str, uid: int, api_key: str) -> dict[int, str]:

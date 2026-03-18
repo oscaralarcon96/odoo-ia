@@ -1,5 +1,10 @@
 # Credenciales — NUNCA subir al repo
 .env
+credentials.json
+token.json
+
+# Datos locales
+chat_history.json
 
 # Entorno virtual
 venv/
