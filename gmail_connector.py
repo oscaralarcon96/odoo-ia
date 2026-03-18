@@ -37,6 +37,16 @@ def get_gmail_service(
 
     creds = None
 
+    # En producción, intentar leer el token directamente de las variables de entorno
+    env_token = os.getenv("GMAIL_TOKEN_JSON")
+    if env_token and not os.path.exists(token_path):
+        import json
+        try:
+            with open(token_path, "w") as f:
+                f.write(env_token)
+        except Exception as e:
+            print(f"Warning: No se pudo escribir token.json desde la variable de entorno: {e}")
+
     if os.path.exists(token_path):
         creds = Credentials.from_authorized_user_file(token_path, SCOPES)
 
@@ -44,6 +54,16 @@ def get_gmail_service(
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
+            # En producción, intentar leer variables de entorno si no existe el archivo
+            env_creds = os.getenv("GMAIL_CREDENTIALS_JSON")
+            if env_creds and not os.path.exists(credentials_path):
+                import json
+                try:
+                    with open(credentials_path, "w") as f:
+                        f.write(env_creds)
+                except Exception as e:
+                    print(f"Warning: No se pudo escribir credentials.json desde la variable de entorno: {e}")
+
             if not os.path.exists(credentials_path):
                 raise FileNotFoundError(
                     f"No se encontró credentials.json en: {credentials_path}\n"
@@ -170,3 +190,12 @@ def revoke_token() -> None:
     """Borra el token guardado, forzando re-autorización en el próximo uso."""
     if os.path.exists(TOKEN_FILE):
         os.remove(TOKEN_FILE)
+
+if __name__ == "__main__":
+    print("Iniciando autenticación de Gmail...")
+    try:
+        service = get_gmail_service()
+        print("✅ ¡Autenticación exitosa! El archivo token.json ha sido creado.")
+        print("Ya puedes cerrar esta ventana y regresar a tu aplicación.")
+    except Exception as e:
+        print(f"❌ Error durante la autenticación: {e}")
